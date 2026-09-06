@@ -16,7 +16,8 @@ void WebHandler::dump_config() {
 }
 
 bool WebHandler::canHandle(AsyncWebServerRequest *request) const {
-  return (std::string(request->url().c_str()) == path_);
+  char url_buf[AsyncWebServerRequest::URL_BUF_SIZE];
+  return request->url_to(url_buf) == path_;
 }
 
 void WebHandler::handleRequest(AsyncWebServerRequest *request) {
