@@ -229,57 +229,37 @@ void ESmart3Component::parse_status_data_() {
 
 void ESmart3Component::parse_log_data_() {
   /*
-   * W db_Log offsety są liczone jako 16-bitowe słowa:
+   * Regulator zwraca maksymalnie 26 bajtów db_Log w tej odpowiedzi.
+   * Możemy z tego pakietu odczytać:
+   * - Produkcję dzienną PV
+   * - Produkcję miesięczną PV
    *
-   * Offset 0x06 = dwTodayEng
-   * Offset 0x0A = dwMonthEng
-   * Offset 0x0E = dwTotalEng
-   * Offset 0x10 = dwLoadTodayEng
-   * Offset 0x12 = dwLoadMonthEng
-   * Offset 0x14 = dwLoadTotalEng
-   *
-   * Każdy licznik jest Uint32 i jednostką jest Wh.
-   *
-   * Dane zaczynają się od indeksu 8.
-   * Wynik dzielimy przez 1000, aby HA otrzymał kWh.
+   * Wartości w regulatorze są w Wh.
+   * Dzielimy przez 1000, aby otrzymać kWh.
    */
 
-  if (data_.size() < 53) {
+  if (data_.size() < 35) {
     ESP_LOGW(TAG, "Energy log response too short: %u bytes", data_.size());
     return;
   }
 
+  // Offset db_Log 0x06: dwTodayEng, Uint32, Wh.
   const float today_energy = float(get_32_bit_uint_(20)) / 1000.0f;
-  const float month_energy = float(get_32_bit_uint_(28)) / 1000.0f;
-  const float total_energy = float(get_32_bit_uint_(36)) / 1000.0f;
 
-  const float load_today_energy = float(get_32_bit_uint_(40)) / 1000.0f;
-  const float load_month_energy = float(get_32_bit_uint_(44)) / 1000.0f;
-  const float load_total_energy = float(get_32_bit_uint_(48)) / 1000.0f;
+  // Offset db_Log 0x0A: dwMonthEng, Uint32, Wh.
+  const float month_energy = float(get_32_bit_uint_(28)) / 1000.0f;
 
   ESP_LOGD(
       TAG,
-      "Energy: Today=%.3fkWh, Month=%.3fkWh, Total=%.3fkWh, LoadToday=%.3fkWh, LoadMonth=%.3fkWh, LoadTotal=%.3fkWh",
-      today_energy, month_energy, total_energy,
-      load_today_energy, load_month_energy, load_total_energy);
+      "Energy: Today=%.3f kWh, Month=%.3f kWh",
+      today_energy,
+      month_energy);
 
   if (today_energy_sensor_ != nullptr)
     today_energy_sensor_->publish_state(today_energy);
 
   if (month_energy_sensor_ != nullptr)
     month_energy_sensor_->publish_state(month_energy);
-
-  if (total_energy_sensor_ != nullptr)
-    total_energy_sensor_->publish_state(total_energy);
-
-  if (load_today_energy_sensor_ != nullptr)
-    load_today_energy_sensor_->publish_state(load_today_energy);
-
-  if (load_month_energy_sensor_ != nullptr)
-    load_month_energy_sensor_->publish_state(load_month_energy);
-
-  if (load_total_energy_sensor_ != nullptr)
-    load_total_energy_sensor_->publish_state(load_total_energy);
 }
 
 uint16_t ESmart3Component::get_16_bit_uint_(uint8_t start_index) const {
