@@ -166,7 +166,7 @@ void ESmart3Component::parse_data_() {
 
 void ESmart3Component::parse_status_data_() {
   // Minimalny rozmiar ramki danych bieżących.
-  if (data_.size() < 35) {
+  if (data_.size() < 33) {
     ESP_LOGW(TAG, "Status response too short: %u bytes", data_.size());
     return;
   }
