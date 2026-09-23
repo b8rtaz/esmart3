@@ -9,17 +9,74 @@ namespace esmart3 {
 
 class ESmart3Component : public PollingComponent, public uart::UARTDevice {
  public:
-  void set_charge_mode_sensor(sensor::Sensor *charge_mode_sensor) { charge_mode_sensor_ = charge_mode_sensor; }
-  void set_input_voltage_sensor(sensor::Sensor *input_voltage_sensor) { input_voltage_sensor_ = input_voltage_sensor; }
-  void set_battery_voltage_sensor(sensor::Sensor *battery_voltage_sensor) { battery_voltage_sensor_ = battery_voltage_sensor; }
-  void set_charging_current_sensor(sensor::Sensor *charging_current_sensor) { charging_current_sensor_ = charging_current_sensor; }
-  void set_load_voltage_sensor(sensor::Sensor *load_voltage_sensor) { load_voltage_sensor_ = load_voltage_sensor; }
-  void set_load_current_sensor(sensor::Sensor *load_current_sensor) { load_current_sensor_ = load_current_sensor; }
-  void set_charging_power_sensor(sensor::Sensor *charging_power_sensor) { charging_power_sensor_ = charging_power_sensor; }
-  void set_load_power_sensor(sensor::Sensor *load_power_sensor) { load_power_sensor_ = load_power_sensor; }
-  void set_battery_temp_sensor(sensor::Sensor *battery_temp_sensor) { battery_temp_sensor_ = battery_temp_sensor; }
-  void set_internal_temp_sensor(sensor::Sensor *internal_temp_sensor) { internal_temp_sensor_ = internal_temp_sensor; }
-  void set_battery_level_sensor(sensor::Sensor *battery_level_sensor) { battery_level_sensor_ = battery_level_sensor; }
+  void set_charge_mode_sensor(sensor::Sensor *charge_mode_sensor) {
+    charge_mode_sensor_ = charge_mode_sensor;
+  }
+
+  void set_input_voltage_sensor(sensor::Sensor *input_voltage_sensor) {
+    input_voltage_sensor_ = input_voltage_sensor;
+  }
+
+  void set_battery_voltage_sensor(sensor::Sensor *battery_voltage_sensor) {
+    battery_voltage_sensor_ = battery_voltage_sensor;
+  }
+
+  void set_charging_current_sensor(sensor::Sensor *charging_current_sensor) {
+    charging_current_sensor_ = charging_current_sensor;
+  }
+
+  void set_load_voltage_sensor(sensor::Sensor *load_voltage_sensor) {
+    load_voltage_sensor_ = load_voltage_sensor;
+  }
+
+  void set_load_current_sensor(sensor::Sensor *load_current_sensor) {
+    load_current_sensor_ = load_current_sensor;
+  }
+
+  void set_charging_power_sensor(sensor::Sensor *charging_power_sensor) {
+    charging_power_sensor_ = charging_power_sensor;
+  }
+
+  void set_load_power_sensor(sensor::Sensor *load_power_sensor) {
+    load_power_sensor_ = load_power_sensor;
+  }
+
+  void set_battery_temp_sensor(sensor::Sensor *battery_temp_sensor) {
+    battery_temp_sensor_ = battery_temp_sensor;
+  }
+
+  void set_internal_temp_sensor(sensor::Sensor *internal_temp_sensor) {
+    internal_temp_sensor_ = internal_temp_sensor;
+  }
+
+  void set_battery_level_sensor(sensor::Sensor *battery_level_sensor) {
+    battery_level_sensor_ = battery_level_sensor;
+  }
+
+  // Natywne liczniki energii z db_Log.
+  void set_today_energy_sensor(sensor::Sensor *sensor) {
+    today_energy_sensor_ = sensor;
+  }
+
+  void set_month_energy_sensor(sensor::Sensor *sensor) {
+    month_energy_sensor_ = sensor;
+  }
+
+  void set_total_energy_sensor(sensor::Sensor *sensor) {
+    total_energy_sensor_ = sensor;
+  }
+
+  void set_load_today_energy_sensor(sensor::Sensor *sensor) {
+    load_today_energy_sensor_ = sensor;
+  }
+
+  void set_load_month_energy_sensor(sensor::Sensor *sensor) {
+    load_month_energy_sensor_ = sensor;
+  }
+
+  void set_load_total_energy_sensor(sensor::Sensor *sensor) {
+    load_total_energy_sensor_ = sensor;
+  }
 
   void dump_config() override;
   void loop() override;
@@ -30,7 +87,11 @@ class ESmart3Component : public PollingComponent, public uart::UARTDevice {
  protected:
   bool check_data_() const;
   void parse_data_();
+  void parse_status_data_();
+  void parse_log_data_();
+
   uint16_t get_16_bit_uint_(uint8_t start_index) const;
+  uint32_t get_32_bit_uint_(uint8_t start_index) const;
 
   sensor::Sensor *charge_mode_sensor_{nullptr};
   sensor::Sensor *input_voltage_sensor_{nullptr};
@@ -44,9 +105,20 @@ class ESmart3Component : public PollingComponent, public uart::UARTDevice {
   sensor::Sensor *internal_temp_sensor_{nullptr};
   sensor::Sensor *battery_level_sensor_{nullptr};
 
+  // Energia PV.
+  sensor::Sensor *today_energy_sensor_{nullptr};
+  sensor::Sensor *month_energy_sensor_{nullptr};
+  sensor::Sensor *total_energy_sensor_{nullptr};
+
+  // Energia wyjścia LOAD.
+  sensor::Sensor *load_today_energy_sensor_{nullptr};
+  sensor::Sensor *load_month_energy_sensor_{nullptr};
+  sensor::Sensor *load_total_energy_sensor_{nullptr};
+
   std::vector<uint8_t> data_;
   bool receiving_{false};
-  uint8_t data_count_;
+  bool request_log_next_{false};
+  uint8_t data_count_{0};
   uint32_t last_transmission_{0};
 };
 
