@@ -1,8 +1,6 @@
 #include "esmart3.h"
 #include "esphome/core/log.h"
 
-#include <cstdio>
-
 namespace esphome {
 namespace esmart3 {
 
@@ -40,9 +38,7 @@ void ESmart3Component::update() {
   }
 
   /*
-   * db_ChgSts — bieżący status regulatora.
-   * Data item: 0x00
-   *
+   * 1. Status bieżący (db_ChgSts, item 0x00):
    * AA 01 00 01 00 03 00 00 18 39
    */
   static uint8_t status_data[] = {
@@ -51,12 +47,7 @@ void ESmart3Component::update() {
   };
 
   /*
-   * db_Log od offsetu 0x0000, długość 0x1A.
-   *
-   * Odczyt:
-   * - PV Energy Daily
-   * - PV Energy Monthly
-   *
+   * 2. Energia PV dzienna i miesięczna (db_Log, item 0x02, offset 0x0000, length 0x1A):
    * AA 01 00 01 02 03 00 00 1A 35
    */
   static uint8_t log_first_data[] = {
@@ -65,43 +56,14 @@ void ESmart3Component::update() {
   };
 
   /*
-   * db_Log od offsetu 0x000E, długość 0x10.
-   *
-   * Odczyt:
-   * - PV Energy Total
-   * - Load Energy Daily
-   * - Load Energy Monthly
-   *
-   * Load Total nie mieści się bezpiecznie w tej ramce.
-   *
-   * AA 01 00 01 02 03 0E 00 10 31
+   * 3. Energia PV Total oraz komplet liczników LOAD (db_Log, item 0x02, offset 0x000E, length 0x12):
+   * AA 01 00 01 02 03 0E 00 12 2B
    */
   static uint8_t log_second_data[] = {
       0xAA, 0x01, 0x00, 0x01, 0x02,
-      0x03, 0x0E, 0x00, 0x10, 0x31
+      0x03, 0x0E, 0x00, 0x12, 0x2B
   };
 
-  /*
-   * db_Log od offsetu 0x0014, długość 0x04.
-   *
-   * Odczyt:
-   * - Load Energy Total
-   *
-   * AA 01 00 01 02 03 14 00 04 37
-   */
-  static uint8_t log_load_total_data[] = {
-      0xAA, 0x01, 0x00, 0x01, 0x02,
-      0x03, 0x14, 0x00, 0x04, 0x37
-  };
-
-  /*
-   * Kolejność odpytywania:
-   *
-   * 0 = status bieżący
-   * 1 = PV energia dzienna / miesięczna
-   * 2 = PV total + LOAD dzienny / miesięczny
-   * 3 = LOAD total — tryb diagnostyczny
-   */
   static uint8_t request_type = 0;
 
   if (request_type == 0) {
@@ -110,17 +72,13 @@ void ESmart3Component::update() {
   } else if (request_type == 1) {
     ESP_LOGD(TAG, "Requesting daily and monthly PV energy");
     write_array(log_first_data, sizeof(log_first_data));
-  } else if (request_type == 2) {
-    ESP_LOGD(TAG, "Requesting total PV and LOAD daily/monthly energy");
-    write_array(log_second_data, sizeof(log_second_data));
   } else {
-    ESP_LOGD(TAG, "Requesting LOAD total energy");
-    write_array(log_load_total_data, sizeof(log_load_total_data));
+    ESP_LOGD(TAG, "Requesting total PV and all LOAD energy");
+    write_array(log_second_data, sizeof(log_second_data));
   }
 
   request_type++;
-
-  if (request_type > 3) {
+  if (request_type > 2) {
     request_type = 0;
   }
 }
@@ -153,11 +111,9 @@ void ESmart3Component::loop() {
 
     data_.push_back(c);
 
-    // Szósty bajt zawiera długość danych odpowiedzi.
     if (data_.size() == 6)
       data_count_ = c;
 
-    // Pełna ramka: 6 bajtów nagłówka + payload + checksum.
     if ((data_.size() > 6) && (data_.size() == data_count_ + 7)) {
       if (check_data_()) {
         parse_data_();
@@ -175,14 +131,12 @@ bool ESmart3Component::check_data_() const {
     return false;
   }
 
-  // Odpowiedź regulatora ma CMD_SET_NO_RESP = 0x03.
   if (data_[3] != 0x03) {
     ESP_LOGW(TAG, "Unexpected response code: %d", data_[3]);
     return false;
   }
 
   uint8_t sum = 0;
-
   for (uint8_t c : data_) {
     sum += c;
   }
@@ -196,7 +150,6 @@ bool ESmart3Component::check_data_() const {
 }
 
 void ESmart3Component::parse_data_() {
-  // data_[4] = ID grupy danych.
   switch (data_[4]) {
     case 0x00:
       parse_status_data_();
@@ -213,7 +166,6 @@ void ESmart3Component::parse_data_() {
 }
 
 void ESmart3Component::parse_status_data_() {
-  // Twój eSmart3 zwraca status o długości 33 bajtów.
   if (data_.size() < 33) {
     ESP_LOGW(TAG, "Status response too short: %u bytes", data_.size());
     return;
@@ -224,7 +176,6 @@ void ESmart3Component::parse_status_data_() {
   const float battery_voltage = float(get_16_bit_uint_(12)) / 10.0f;
   const float charging_current = float(get_16_bit_uint_(14)) / 10.0f;
 
-  // Indeks 16: wOutVolt — pomijamy, pole wewnętrzne.
   const float load_voltage = float(get_16_bit_uint_(18)) / 10.0f;
   const float load_current = float(get_16_bit_uint_(20)) / 10.0f;
 
@@ -237,21 +188,12 @@ void ESmart3Component::parse_status_data_() {
   ESP_LOGD(
       TAG,
       "Status: ChgMode=%d, PvVolt=%.1fV, BatVolt=%.1fV, ChgCurr=%.1fA, LoadVolt=%.1fV, LoadCurr=%.1fA",
-      charge_mode,
-      input_voltage,
-      battery_voltage,
-      charging_current,
-      load_voltage,
-      load_current);
+      charge_mode, input_voltage, battery_voltage, charging_current, load_voltage, load_current);
 
   ESP_LOGD(
       TAG,
       "Status: ChgPower=%dW, LoadPower=%dW, BatTemp=%dC, InnerTemp=%dC, BatCap=%d%%",
-      charging_power,
-      load_power,
-      battery_temp,
-      internal_temp,
-      battery_level);
+      charging_power, load_power, battery_temp, internal_temp, battery_level);
 
   if (charge_mode_sensor_ != nullptr)
     charge_mode_sensor_->publish_state(charge_mode);
@@ -293,16 +235,12 @@ void ESmart3Component::parse_log_data_() {
     return;
   }
 
-  // Bajty 6–7 wskazują offset zwróconych danych db_Log.
   const uint16_t offset = get_16_bit_uint_(6);
 
   /*
-   * Offset 0x0000:
-   *
-   * Daily PV:   indeks 22
-   * Monthly PV: indeks 30
-   *
-   * Wartości Uint32, little-endian, jednostka Wh.
+   * 1. Blok offset 0x0000:
+   * - index 22 = dwTodayEng (PV Daily)
+   * - index 30 = dwMonthEng (PV Monthly)
    */
   if (offset == 0x0000) {
     if (data_.size() < 35) {
@@ -313,11 +251,7 @@ void ESmart3Component::parse_log_data_() {
     const float today_energy = float(get_32_bit_uint_(22)) / 1000.0f;
     const float month_energy = float(get_32_bit_uint_(30)) / 1000.0f;
 
-    ESP_LOGD(
-        TAG,
-        "PV energy: Today=%.3f kWh, Month=%.3f kWh",
-        today_energy,
-        month_energy);
+    ESP_LOGD(TAG, "PV energy: Today=%.3f kWh, Month=%.3f kWh", today_energy, month_energy);
 
     if (today_energy_sensor_ != nullptr)
       today_energy_sensor_->publish_state(today_energy);
@@ -329,17 +263,14 @@ void ESmart3Component::parse_log_data_() {
   }
 
   /*
-   * Offset 0x000E:
-   *
-   * Total PV:           indeks 10
-   * Load Energy Daily:  indeks 14
-   * Load Energy Monthly:indeks 18
-   *
-   * Nie czytamy Load Total z tego pakietu, ponieważ cztery bajty
-   * wartości nie mieszczą się bezpiecznie przed checksum.
+   * 2. Blok offset 0x000E (odpowiedź ma 27 bajtów):
+   * - index 10 = dwTotalEng     (PV Total)
+   * - index 14 = dwLoadTodayEng (LOAD Daily)
+   * - index 18 = dwLoadMonthEng (LOAD Monthly)
+   * - index 22 = dwLoadTotalEng (LOAD Total)
    */
   if (offset == 0x000E) {
-    if (data_.size() < 25) {
+    if (data_.size() < 27) {
       ESP_LOGW(TAG, "Second energy log response too short: %u bytes", data_.size());
       return;
     }
@@ -347,13 +278,12 @@ void ESmart3Component::parse_log_data_() {
     const float total_energy = float(get_32_bit_uint_(10)) / 1000.0f;
     const float load_today_energy = float(get_32_bit_uint_(14)) / 1000.0f;
     const float load_month_energy = float(get_32_bit_uint_(18)) / 1000.0f;
+    const float load_total_energy = float(get_32_bit_uint_(22)) / 1000.0f;
 
     ESP_LOGD(
         TAG,
-        "Total energy: PVTotal=%.3f kWh, LoadToday=%.3f kWh, LoadMonth=%.3f kWh",
-        total_energy,
-        load_today_energy,
-        load_month_energy);
+        "Total energy: PVTotal=%.3f kWh, LoadToday=%.3f kWh, LoadMonth=%.3f kWh, LoadTotal=%.3f kWh",
+        total_energy, load_today_energy, load_month_energy, load_total_energy);
 
     if (total_energy_sensor_ != nullptr)
       total_energy_sensor_->publish_state(total_energy);
@@ -364,32 +294,8 @@ void ESmart3Component::parse_log_data_() {
     if (load_month_energy_sensor_ != nullptr)
       load_month_energy_sensor_->publish_state(load_month_energy);
 
-    return;
-  }
-
-  /*
-   * Offset 0x0014:
-   *
-   * To ma być prawdziwy odczyt Load Energy Total.
-   * Najpierw wyświetlamy RAW w logu, aby potwierdzić układ bajtów.
-   */
-  if (offset == 0x0014) {
-    ESP_LOGD(TAG, "LOAD total energy frame length: %u bytes", data_.size());
-
-    char raw[180];
-    size_t pos = 0;
-
-    for (size_t i = 0; i < data_.size() && pos < sizeof(raw) - 4; i++) {
-      pos += snprintf(raw + pos, sizeof(raw) - pos, "%02X ", data_[i]);
-    }
-
-    raw[sizeof(raw) - 1] = '\0';
-
-    ESP_LOGD(TAG, "LOAD total energy RAW: %s", raw);
-
-    // Usuwa fałszywy poprzedni stan, np. 917.504 kWh.
     if (load_total_energy_sensor_ != nullptr)
-      load_total_energy_sensor_->publish_state(NAN);
+      load_total_energy_sensor_->publish_state(load_total_energy);
 
     return;
   }
@@ -398,8 +304,7 @@ void ESmart3Component::parse_log_data_() {
 }
 
 uint16_t ESmart3Component::get_16_bit_uint_(uint8_t start_index) const {
-  return (uint16_t(this->data_[start_index + 1]) << 8) |
-         uint16_t(this->data_[start_index]);
+  return (uint16_t(this->data_[start_index + 1]) << 8) | uint16_t(this->data_[start_index]);
 }
 
 uint32_t ESmart3Component::get_32_bit_uint_(uint8_t start_index) const {
