@@ -1,6 +1,8 @@
 #include "esmart3.h"
 #include "esphome/core/log.h"
 
+#include <cstdio>
+
 namespace esphome {
 namespace esmart3 {
 
@@ -38,10 +40,8 @@ void ESmart3Component::update() {
   }
 
   /*
-   * Odczyt danych bieżących:
+   * Dane bieżące db_ChgSts / data item 0x00:
    * AA 01 00 01 00 03 00 00 18 39
-   *
-   * db_ChgSts = data item 0x00
    */
   static uint8_t status_data[] = {
       0xAA, 0x01, 0x00, 0x01, 0x00,
@@ -49,18 +49,10 @@ void ESmart3Component::update() {
   };
 
   /*
-   * Odczyt danych energii:
+   * Log energii db_Log / data item 0x02:
+   * Odczyt od offsetu 0x0000, długość 0x1A = 26 bajtów.
+   *
    * AA 01 00 01 02 03 00 00 1A 35
-   *
-   * db_Log = data item 0x02
-   *
-   * Zawiera:
-   * - Daily PV Energy
-   * - Monthly PV Energy
-   * - Total PV Energy
-   * - Daily Load Energy
-   * - Monthly Load Energy
-   * - Total Load Energy
    */
   static uint8_t log_data[] = {
       0xAA, 0x01, 0x00, 0x01, 0x02,
@@ -75,6 +67,7 @@ void ESmart3Component::update() {
     write_array(status_data, sizeof(status_data));
   }
 
+  // Naprzemiennie status i log energii.
   request_log_next_ = !request_log_next_;
 }
 
@@ -106,11 +99,11 @@ void ESmart3Component::loop() {
 
     data_.push_back(c);
 
-    // Bajt numer 6 określa długość payloadu odpowiedzi.
+    // Bajt nr 6 określa długość danych odpowiedzi.
     if (data_.size() == 6)
       data_count_ = c;
 
-    // 6 bajtów nagłówka + payload + checksum.
+    // Cała ramka: 6 bajtów nagłówka + payload + checksum.
     if ((data_.size() > 6) && (data_.size() == data_count_ + 7)) {
       if (check_data_()) {
         parse_data_();
@@ -128,7 +121,7 @@ bool ESmart3Component::check_data_() const {
     return false;
   }
 
-  // Odpowiedź regulatora jest CMD_SET_NO_RESP = 0x03.
+  // Regulator odpowiada CMD_SET_NO_RESP = 0x03.
   if (data_[3] != 0x03) {
     ESP_LOGW(TAG, "Unexpected response code: %d", data_[3]);
     return false;
@@ -136,13 +129,15 @@ bool ESmart3Component::check_data_() const {
 
   uint8_t sum = 0;
 
-  for (uint8_t c : data_)
+  for (uint8_t c : data_) {
     sum += c;
+  }
 
   const bool result = sum == 0;
 
-  if (!result)
+  if (!result) {
     ESP_LOGW(TAG, "Data checksum failed");
+  }
 
   return result;
 }
@@ -165,23 +160,25 @@ void ESmart3Component::parse_data_() {
 }
 
 void ESmart3Component::parse_status_data_() {
-  // Minimalny rozmiar ramki danych bieżących.
+  /*
+   * Twój regulator zwraca prawidłową ramkę statusu o długości 33 bajtów.
+   */
   if (data_.size() < 33) {
     ESP_LOGW(TAG, "Status response too short: %u bytes", data_.size());
     return;
   }
 
-  uint16_t charge_mode = get_16_bit_uint_(8);
-  float input_voltage = float(get_16_bit_uint_(10)) / 10.0f;
-  float battery_voltage = float(get_16_bit_uint_(12)) / 10.0f;
-  float charging_current = float(get_16_bit_uint_(14)) / 10.0f;
-  float load_voltage = float(get_16_bit_uint_(18)) / 10.0f;
-  float load_current = float(get_16_bit_uint_(20)) / 10.0f;
-  uint16_t charging_power = get_16_bit_uint_(22);
-  uint16_t load_power = get_16_bit_uint_(24);
-  uint16_t battery_temp = get_16_bit_uint_(26);
-  uint16_t internal_temp = get_16_bit_uint_(28);
-  uint16_t battery_level = get_16_bit_uint_(30);
+  const uint16_t charge_mode = get_16_bit_uint_(8);
+  const float input_voltage = float(get_16_bit_uint_(10)) / 10.0f;
+  const float battery_voltage = float(get_16_bit_uint_(12)) / 10.0f;
+  const float charging_current = float(get_16_bit_uint_(14)) / 10.0f;
+  const float load_voltage = float(get_16_bit_uint_(18)) / 10.0f;
+  const float load_current = float(get_16_bit_uint_(20)) / 10.0f;
+  const uint16_t charging_power = get_16_bit_uint_(22);
+  const uint16_t load_power = get_16_bit_uint_(24);
+  const uint16_t battery_temp = get_16_bit_uint_(26);
+  const uint16_t internal_temp = get_16_bit_uint_(28);
+  const uint16_t battery_level = get_16_bit_uint_(30);
 
   ESP_LOGD(
       TAG,
@@ -229,37 +226,24 @@ void ESmart3Component::parse_status_data_() {
 
 void ESmart3Component::parse_log_data_() {
   /*
-   * Regulator zwraca maksymalnie 26 bajtów db_Log w tej odpowiedzi.
-   * Możemy z tego pakietu odczytać:
-   * - Produkcję dzienną PV
-   * - Produkcję miesięczną PV
+   * TRYB DIAGNOSTYCZNY.
    *
-   * Wartości w regulatorze są w Wh.
-   * Dzielimy przez 1000, aby otrzymać kWh.
+   * Nie publikujemy energii, ponieważ wcześniejsze wartości były błędnie
+   * odczytane. Wypisujemy pełną ramkę HEX do logu ESPHome.
    */
 
-  if (data_.size() < 35) {
-    ESP_LOGW(TAG, "Energy log response too short: %u bytes", data_.size());
-    return;
+  ESP_LOGD(TAG, "Energy-log frame length: %u bytes", data_.size());
+
+  char raw[220];
+  size_t pos = 0;
+
+  for (size_t i = 0; i < data_.size() && pos < sizeof(raw) - 4; i++) {
+    pos += snprintf(raw + pos, sizeof(raw) - pos, "%02X ", data_[i]);
   }
 
-  // Offset db_Log 0x06: dwTodayEng, Uint32, Wh.
-  const float today_energy = float(get_32_bit_uint_(20)) / 1000.0f;
+  raw[sizeof(raw) - 1] = '\0';
 
-  // Offset db_Log 0x0A: dwMonthEng, Uint32, Wh.
-  const float month_energy = float(get_32_bit_uint_(28)) / 1000.0f;
-
-  ESP_LOGD(
-      TAG,
-      "Energy: Today=%.3f kWh, Month=%.3f kWh",
-      today_energy,
-      month_energy);
-
-  if (today_energy_sensor_ != nullptr)
-    today_energy_sensor_->publish_state(today_energy);
-
-  if (month_energy_sensor_ != nullptr)
-    month_energy_sensor_->publish_state(month_energy);
+  ESP_LOGD(TAG, "Energy-log RAW: %s", raw);
 }
 
 uint16_t ESmart3Component::get_16_bit_uint_(uint8_t start_index) const {
