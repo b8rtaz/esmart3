@@ -1,6 +1,8 @@
 #include "esmart3.h"
 #include "esphome/core/log.h"
 
+#include <cstdio>
+
 namespace esphome {
 namespace esmart3 {
 
@@ -38,7 +40,8 @@ void ESmart3Component::update() {
   }
 
   /*
-   * db_ChgSts — dane bieżące:
+   * db_ChgSts: dane bieżące, Data Item = 0x00
+   *
    * AA 01 00 01 00 03 00 00 18 39
    */
   static uint8_t status_data[] = {
@@ -47,11 +50,11 @@ void ESmart3Component::update() {
   };
 
   /*
-   * db_Log od offsetu 0x0000, długość 0x1A:
+   * db_Log: od offsetu 0x0000, 26 bajtów, Data Item = 0x02
    *
    * Zawiera:
-   * - dwTodayEng  (offset 0x06)
-   * - dwMonthEng  (offset 0x0A)
+   * - dwTodayEng
+   * - dwMonthEng
    *
    * AA 01 00 01 02 03 00 00 1A 35
    */
@@ -61,13 +64,13 @@ void ESmart3Component::update() {
   };
 
   /*
-   * db_Log od offsetu 0x000E, długość 0x10:
+   * db_Log: od offsetu 0x000E, 16 bajtów.
    *
-   * Zawiera:
-   * - dwTotalEng      offset 0x0E
-   * - dwLoadTodayEng  offset 0x10
-   * - dwLoadMonthEng  offset 0x12
-   * - dwLoadTotalEng  offset 0x14
+   * Oczekiwane dane:
+   * - dwTotalEng
+   * - dwLoadTodayEng
+   * - dwLoadMonthEng
+   * - dwLoadTotalEng
    *
    * AA 01 00 01 02 03 0E 00 10 31
    */
@@ -76,12 +79,6 @@ void ESmart3Component::update() {
       0x03, 0x0E, 0x00, 0x10, 0x31
   };
 
-  /*
-   * Kolejność:
-   * 0 = bieżące dane
-   * 1 = produkcja dzienna / miesięczna
-   * 2 = produkcja total / LOAD
-   */
   static uint8_t request_type = 0;
 
   if (request_type == 0) {
@@ -129,11 +126,11 @@ void ESmart3Component::loop() {
 
     data_.push_back(c);
 
-    // Bajt nr 6 określa długość payloadu odpowiedzi.
+    // Szósty bajt zawiera długość payloadu.
     if (data_.size() == 6)
       data_count_ = c;
 
-    // Pełna ramka = 6 bajtów nagłówka + payload + checksum.
+    // Ramka = 6 bajtów nagłówka + payload + 1 bajt checksum.
     if ((data_.size() > 6) && (data_.size() == data_count_ + 7)) {
       if (check_data_()) {
         parse_data_();
@@ -151,7 +148,7 @@ bool ESmart3Component::check_data_() const {
     return false;
   }
 
-  // Odpowiedź regulatora ma CMD_SET_NO_RESP = 0x03.
+  // Odpowiedź regulatora: CMD_SET_NO_RESP = 0x03.
   if (data_[3] != 0x03) {
     ESP_LOGW(TAG, "Unexpected response code: %d", data_[3]);
     return false;
@@ -189,6 +186,7 @@ void ESmart3Component::parse_data_() {
 }
 
 void ESmart3Component::parse_status_data_() {
+  // U Ciebie poprawna odpowiedź ma 33 bajty.
   if (data_.size() < 33) {
     ESP_LOGW(TAG, "Status response too short: %u bytes", data_.size());
     return;
@@ -199,10 +197,9 @@ void ESmart3Component::parse_status_data_() {
   const float battery_voltage = float(get_16_bit_uint_(12)) / 10.0f;
   const float charging_current = float(get_16_bit_uint_(14)) / 10.0f;
 
-  // Indeks 16 to wOutVolt — parametr wewnętrzny, pomijamy.
+  // Indeks 16 = wOutVolt, parametr wewnętrzny regulatora.
   const float load_voltage = float(get_16_bit_uint_(18)) / 10.0f;
   const float load_current = float(get_16_bit_uint_(20)) / 10.0f;
-
   const uint16_t charging_power = get_16_bit_uint_(22);
   const uint16_t load_power = get_16_bit_uint_(24);
   const uint16_t battery_temp = get_16_bit_uint_(26);
@@ -263,30 +260,20 @@ void ESmart3Component::parse_status_data_() {
 }
 
 void ESmart3Component::parse_log_data_() {
-  /*
-   * W odpowiedzi db_Log:
-   *
-   * data_[6], data_[7] = offset odczytu.
-   *
-   * Jeśli offset = 0x0000:
-   *   index 22 = dwTodayEng
-   *   index 30 = dwMonthEng
-   *
-   * Jeśli offset = 0x000E:
-   *   index 8  = dwTotalEng
-   *   index 12 = dwLoadTodayEng
-   *   index 16 = dwLoadMonthEng
-   *   index 20 = dwLoadTotalEng
-   *
-   * Wszystkie wartości są Uint32 little-endian w Wh.
-   * Dzielimy przez 1000, aby przekazać kWh do HA.
-   */
-
   if (data_.size() < 15) {
     ESP_LOGW(TAG, "Energy log response too short: %u bytes", data_.size());
     return;
   }
 
+  /*
+   * W odpowiedzi:
+   *
+   * data_[6], data_[7] = offset danych db_Log.
+   *
+   * Odpowiedź dla offsetu 0x0000:
+   * - indeks 22 = dwTodayEng
+   * - indeks 30 = dwMonthEng
+   */
   const uint16_t offset = get_16_bit_uint_(6);
 
   if (offset == 0x0000) {
@@ -313,36 +300,25 @@ void ESmart3Component::parse_log_data_() {
     return;
   }
 
+  /*
+   * Diagnostyka drugiej ramki.
+   *
+   * Na razie nie publikujemy Total PV ani Load Energy, bo poprzednie
+   * indeksy były błędne. W logu pokaże się pełna odpowiedź HEX.
+   */
   if (offset == 0x000E) {
-    if (data_.size() < 25) {
-      ESP_LOGW(TAG, "Second energy log response too short: %u bytes", data_.size());
-      return;
+    ESP_LOGD(TAG, "Second energy-log frame length: %u bytes", data_.size());
+
+    char raw[220];
+    size_t pos = 0;
+
+    for (size_t i = 0; i < data_.size() && pos < sizeof(raw) - 4; i++) {
+      pos += snprintf(raw + pos, sizeof(raw) - pos, "%02X ", data_[i]);
     }
 
-    const float total_energy = float(get_32_bit_uint_(8)) / 1000.0f;
-    const float load_today_energy = float(get_32_bit_uint_(12)) / 1000.0f;
-    const float load_month_energy = float(get_32_bit_uint_(16)) / 1000.0f;
-    const float load_total_energy = float(get_32_bit_uint_(20)) / 1000.0f;
+    raw[sizeof(raw) - 1] = '\0';
 
-    ESP_LOGD(
-        TAG,
-        "Total energy: PVTotal=%.3f kWh, LoadToday=%.3f kWh, LoadMonth=%.3f kWh, LoadTotal=%.3f kWh",
-        total_energy,
-        load_today_energy,
-        load_month_energy,
-        load_total_energy);
-
-    if (total_energy_sensor_ != nullptr)
-      total_energy_sensor_->publish_state(total_energy);
-
-    if (load_today_energy_sensor_ != nullptr)
-      load_today_energy_sensor_->publish_state(load_today_energy);
-
-    if (load_month_energy_sensor_ != nullptr)
-      load_month_energy_sensor_->publish_state(load_month_energy);
-
-    if (load_total_energy_sensor_ != nullptr)
-      load_total_energy_sensor_->publish_state(load_total_energy);
+    ESP_LOGD(TAG, "Second energy-log RAW: %s", raw);
 
     return;
   }
