@@ -42,14 +42,19 @@ void ESmart3Component::update() {
       0xAA, 0x01, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x18, 0x39
   };
 
-  // 2. PV Dzienna i Miesięczna (db_Log offset 0x0000)
+  // 2. PV Dzienna i Miesięczna (db_Log offset 0x0000, len 0x1A)
   static uint8_t log_first_data[] = {
       0xAA, 0x01, 0x00, 0x01, 0x02, 0x03, 0x00, 0x00, 0x1A, 0x35
   };
 
-  // 3. PV Total oraz WSZYSTKIE liczniki LOAD (db_Log offset 0x000E, długość 0x14)
+  // 3. PV Total + LOAD Dzienna i Miesięczna (db_Log offset 0x000E, len 0x10)
   static uint8_t log_second_data[] = {
-      0xAA, 0x01, 0x00, 0x01, 0x02, 0x03, 0x0E, 0x00, 0x14, 0x29
+      0xAA, 0x01, 0x00, 0x01, 0x02, 0x03, 0x0E, 0x00, 0x10, 0x31
+  };
+
+  // 4. LOAD Total (db_Log offset 0x0010, len 0x10)
+  static uint8_t log_third_data[] = {
+      0xAA, 0x01, 0x00, 0x01, 0x02, 0x03, 0x10, 0x00, 0x10, 0x2F
   };
 
   static uint8_t request_type = 0;
@@ -60,13 +65,16 @@ void ESmart3Component::update() {
   } else if (request_type == 1) {
     ESP_LOGD(TAG, "Requesting daily and monthly PV energy");
     write_array(log_first_data, sizeof(log_first_data));
-  } else {
-    ESP_LOGD(TAG, "Requesting total PV and all LOAD energy");
+  } else if (request_type == 2) {
+    ESP_LOGD(TAG, "Requesting total PV and LOAD daily/monthly energy");
     write_array(log_second_data, sizeof(log_second_data));
+  } else {
+    ESP_LOGD(TAG, "Requesting LOAD total energy");
+    write_array(log_third_data, sizeof(log_third_data));
   }
 
   request_type++;
-  if (request_type > 2) {
+  if (request_type > 3) {
     request_type = 0;
   }
 }
@@ -226,7 +234,7 @@ void ESmart3Component::parse_log_data_() {
   const uint16_t offset = get_16_bit_uint_(6);
 
   /*
-   * 1. Odczyt offset 0x0000:
+   * 1. Blok offset 0x0000:
    * - index 22 = dwTodayEng (PV Daily)
    * - index 30 = dwMonthEng (PV Monthly)
    */
@@ -251,14 +259,13 @@ void ESmart3Component::parse_log_data_() {
   }
 
   /*
-   * 2. Odczyt offset 0x000E (odpowiedź ma 27 bajtów):
+   * 2. Blok offset 0x000E:
    * - index 10 = dwTotalEng     (PV Total)
    * - index 14 = dwLoadTodayEng (LOAD Daily)
    * - index 18 = dwLoadMonthEng (LOAD Monthly)
-   * - index 22 = dwLoadTotalEng (LOAD Total)
    */
   if (offset == 0x000E) {
-    if (data_.size() < 27) {
+    if (data_.size() < 22) {
       ESP_LOGW(TAG, "Second energy log response too short: %u bytes", data_.size());
       return;
     }
@@ -266,12 +273,11 @@ void ESmart3Component::parse_log_data_() {
     const float total_energy = float(get_32_bit_uint_(10)) / 1000.0f;
     const float load_today_energy = float(get_32_bit_uint_(14)) / 1000.0f;
     const float load_month_energy = float(get_32_bit_uint_(18)) / 1000.0f;
-    const float load_total_energy = float(get_32_bit_uint_(22)) / 1000.0f;
 
     ESP_LOGD(
         TAG,
-        "Total energy: PVTotal=%.3f kWh, LoadToday=%.3f kWh, LoadMonth=%.3f kWh, LoadTotal=%.3f kWh",
-        total_energy, load_today_energy, load_month_energy, load_total_energy);
+        "Total PV & LOAD energy: PVTotal=%.3f kWh, LoadToday=%.3f kWh, LoadMonth=%.3f kWh",
+        total_energy, load_today_energy, load_month_energy);
 
     if (total_energy_sensor_ != nullptr)
       total_energy_sensor_->publish_state(total_energy);
@@ -281,6 +287,23 @@ void ESmart3Component::parse_log_data_() {
 
     if (load_month_energy_sensor_ != nullptr)
       load_month_energy_sensor_->publish_state(load_month_energy);
+
+    return;
+  }
+
+  /*
+   * 3. Blok offset 0x0010:
+   * - index 16 = dwLoadTotalEng (LOAD Total)
+   */
+  if (offset == 0x0010) {
+    if (data_.size() < 20) {
+      ESP_LOGW(TAG, "Third energy log response too short: %u bytes", data_.size());
+      return;
+    }
+
+    const float load_total_energy = float(get_32_bit_uint_(16)) / 1000.0f;
+
+    ESP_LOGD(TAG, "LOAD Total energy: LoadTotal=%.3f kWh", load_total_energy);
 
     if (load_total_energy_sensor_ != nullptr)
       load_total_energy_sensor_->publish_state(load_total_energy);
