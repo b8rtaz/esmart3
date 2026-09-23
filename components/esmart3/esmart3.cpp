@@ -37,26 +37,16 @@ void ESmart3Component::update() {
     return;
   }
 
-  /*
-   * Dane bieżące db_ChgSts / data item 0x00:
-   *
-   * AA 01 00 01 00 03 00 00 18 39
-   */
+  // db_ChgSts / dane bieżące / data item 0x00
+  // AA 01 00 01 00 03 00 00 18 39
   static uint8_t status_data[] = {
       0xAA, 0x01, 0x00, 0x01, 0x00,
       0x03, 0x00, 0x00, 0x18, 0x39
   };
 
-  /*
-   * Log energii db_Log / data item 0x02.
-   * Odczyt od offsetu 0x0000, długość 0x1A = 26 bajtów:
-   *
-   * AA 01 00 01 02 03 00 00 1A 35
-   *
-   * Zawiera między innymi:
-   * - dwTodayEng  (dzienna energia PV)
-   * - dwMonthEng  (miesięczna energia PV)
-   */
+  // db_Log / energia / data item 0x02
+  // Odczyt od offsetu 0x0000, długość 0x1A = 26 bajtów
+  // AA 01 00 01 02 03 00 00 1A 35
   static uint8_t log_data[] = {
       0xAA, 0x01, 0x00, 0x01, 0x02,
       0x03, 0x00, 0x00, 0x1A, 0x35
@@ -70,7 +60,8 @@ void ESmart3Component::update() {
     write_array(status_data, sizeof(status_data));
   }
 
-  // Co kolejne odpytywanie: status → energia → status → energia.
+  // Naprzemienne odpytywanie:
+  // status -> energia -> status -> energia
   request_log_next_ = !request_log_next_;
 }
 
@@ -102,11 +93,11 @@ void ESmart3Component::loop() {
 
     data_.push_back(c);
 
-    // Szósty bajt zawiera długość danych odpowiedzi.
+    // Szósty bajt ramki to długość danych.
     if (data_.size() == 6)
       data_count_ = c;
 
-    // Ramka: 6 bajtów nagłówka + payload + checksum.
+    // Ramka = 6 bajtów nagłówka + payload + checksum.
     if ((data_.size() > 6) && (data_.size() == data_count_ + 7)) {
       if (check_data_()) {
         parse_data_();
@@ -124,7 +115,7 @@ bool ESmart3Component::check_data_() const {
     return false;
   }
 
-  // Odpowiedź eSmart3 ma CMD_SET_NO_RESP = 0x03.
+  // Odpowiedź z eSmart3 ma kod CMD_SET_NO_RESP = 0x03.
   if (data_[3] != 0x03) {
     ESP_LOGW(TAG, "Unexpected response code: %d", data_[3]);
     return false;
@@ -136,17 +127,16 @@ bool ESmart3Component::check_data_() const {
     sum += c;
   }
 
-  const bool result = sum == 0;
-
-  if (!result) {
+  if (sum != 0) {
     ESP_LOGW(TAG, "Data checksum failed");
+    return false;
   }
 
-  return result;
+  return true;
 }
 
 void ESmart3Component::parse_data_() {
-  // data_[4] to Data Item ID.
+  // data_[4] = Data Item ID.
   switch (data_[4]) {
     case 0x00:
       parse_status_data_();
@@ -163,9 +153,7 @@ void ESmart3Component::parse_data_() {
 }
 
 void ESmart3Component::parse_status_data_() {
-  /*
-   * Status z Twojego regulatora ma 33 bajty.
-   */
+  // Status z regulatora ma 33 bajty.
   if (data_.size() < 33) {
     ESP_LOGW(TAG, "Status response too short: %u bytes", data_.size());
     return;
@@ -176,10 +164,9 @@ void ESmart3Component::parse_status_data_() {
   const float battery_voltage = float(get_16_bit_uint_(12)) / 10.0f;
   const float charging_current = float(get_16_bit_uint_(14)) / 10.0f;
 
-  // Offset 0x04 = wOutVolt (wewnętrzne), dlatego go pomijamy.
+  // Indeks 16 = wOutVolt, parametr wewnętrzny, pomijamy.
   const float load_voltage = float(get_16_bit_uint_(18)) / 10.0f;
   const float load_current = float(get_16_bit_uint_(20)) / 10.0f;
-
   const uint16_t charging_power = get_16_bit_uint_(22);
   const uint16_t load_power = get_16_bit_uint_(24);
   const uint16_t battery_temp = get_16_bit_uint_(26);
@@ -189,13 +176,21 @@ void ESmart3Component::parse_status_data_() {
   ESP_LOGD(
       TAG,
       "Status: ChgMode=%d, PvVolt=%.1fV, BatVolt=%.1fV, ChgCurr=%.1fA, LoadVolt=%.1fV, LoadCurr=%.1fA",
-      charge_mode, input_voltage, battery_voltage, charging_current,
-      load_voltage, load_current);
+      charge_mode,
+      input_voltage,
+      battery_voltage,
+      charging_current,
+      load_voltage,
+      load_current);
 
   ESP_LOGD(
       TAG,
       "Status: ChgPower=%dW, LoadPower=%dW, BatTemp=%dC, InnerTemp=%dC, BatCap=%d%%",
-      charging_power, load_power, battery_temp, internal_temp, battery_level);
+      charging_power,
+      load_power,
+      battery_temp,
+      internal_temp,
+      battery_level);
 
   if (charge_mode_sensor_ != nullptr)
     charge_mode_sensor_->publish_state(charge_mode);
@@ -233,17 +228,25 @@ void ESmart3Component::parse_status_data_() {
 
 void ESmart3Component::parse_log_data_() {
   /*
-   * db_Log:
+   * Poprawna struktura odebranej ramki db_Log:
    *
-   * Indeks 20 = db_Log offset 0x06 = dwTodayEng
-   * Indeks 28 = db_Log offset 0x0A = dwMonthEng
+   * AA 01 00 03 02 1C 00 00
+   * 32 60
+   * 00 00 00 00
+   * 01 00
+   * 00 00
+   * 00 00
+   * 00 00
+   * 48 0B 00 00   <- Daily Energy: 2888 Wh
+   * 00 00 00 00
+   * 48 0B 00 00   <- Monthly Energy: 2888 Wh
+   * FB
    *
-   * Oba pola są Uint32 w kolejności little-endian.
-   * Jednostka regulatora: Wh.
-   * W Home Assistant publikujemy kWh.
+   * Daily PV Energy: index 22
+   * Monthly PV Energy: index 30
    *
-   * Przykład:
-   * 48 0B 00 00 = 0x00000B48 = 2888 Wh = 2.888 kWh
+   * Dane są little-endian i są w Wh.
+   * Wynik dzielimy przez 1000, aby Home Assistant dostał kWh.
    */
 
   if (data_.size() < 35) {
@@ -251,8 +254,8 @@ void ESmart3Component::parse_log_data_() {
     return;
   }
 
-  const float today_energy = float(get_32_bit_uint_(20)) / 1000.0f;
-  const float month_energy = float(get_32_bit_uint_(28)) / 1000.0f;
+  const float today_energy = float(get_32_bit_uint_(22)) / 1000.0f;
+  const float month_energy = float(get_32_bit_uint_(30)) / 1000.0f;
 
   ESP_LOGD(
       TAG,
