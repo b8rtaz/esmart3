@@ -1,14 +1,31 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import sensor, uart
-from esphome.const import CONF_ID, UNIT_VOLT, ICON_FLASH, UNIT_AMPERE, UNIT_WATT, \
-    ICON_POWER, ICON_CURRENT_AC, CONF_TEMPERATURE, ICON_THERMOMETER, UNIT_CELSIUS, \
-    UNIT_PERCENT, ICON_PERCENT, UNIT_EMPTY, ICON_EMPTY
+from esphome.const import (
+    CONF_ID,
+    UNIT_VOLT,
+    ICON_FLASH,
+    UNIT_AMPERE,
+    UNIT_WATT,
+    ICON_POWER,
+    ICON_CURRENT_AC,
+    CONF_TEMPERATURE,
+    ICON_THERMOMETER,
+    UNIT_CELSIUS,
+    UNIT_PERCENT,
+    ICON_PERCENT,
+    UNIT_EMPTY,
+    ICON_EMPTY,
+)
 
 DEPENDENCIES = ['uart']
 
 esmart3_ns = cg.esphome_ns.namespace('esmart3')
-ESmart3Component = esmart3_ns.class_('ESmart3Component', uart.UARTDevice, cg.PollingComponent)
+ESmart3Component = esmart3_ns.class_(
+    'ESmart3Component',
+    uart.UARTDevice,
+    cg.PollingComponent
+)
 
 CONF_CHARGE_MODE = "charge_mode"
 CONF_INPUT_VOLTAGE = "input_voltage"
@@ -22,67 +39,128 @@ CONF_BATTERY_TEMP = "battery_temp"
 CONF_INTERNAL_TEMP = "internal_temp"
 CONF_BATTERY_LEVEL = "battery_level"
 
+# Natywne liczniki regulatora db_Log.
+CONF_TODAY_ENERGY = "today_energy"
+CONF_MONTH_ENERGY = "month_energy"
+CONF_TOTAL_ENERGY = "total_energy"
+
+CONF_LOAD_TODAY_ENERGY = "load_today_energy"
+CONF_LOAD_MONTH_ENERGY = "load_month_energy"
+CONF_LOAD_TOTAL_ENERGY = "load_total_energy"
+
 CONFIG_SCHEMA = uart.UART_DEVICE_SCHEMA.extend({
     cv.GenerateID(): cv.declare_id(ESmart3Component),
+
     cv.Optional(CONF_CHARGE_MODE): sensor.sensor_schema(
         unit_of_measurement=UNIT_EMPTY,
         icon=ICON_EMPTY,
         accuracy_decimals=0
     ),
+
     cv.Optional(CONF_INPUT_VOLTAGE): sensor.sensor_schema(
         unit_of_measurement=UNIT_VOLT,
         icon=ICON_FLASH,
         accuracy_decimals=1
     ),
+
     cv.Optional(CONF_BATTERY_VOLTAGE): sensor.sensor_schema(
         unit_of_measurement=UNIT_VOLT,
         icon=ICON_FLASH,
         accuracy_decimals=1
     ),
+
     cv.Optional(CONF_CHARGING_CURRENT): sensor.sensor_schema(
         unit_of_measurement=UNIT_AMPERE,
         icon=ICON_CURRENT_AC,
         accuracy_decimals=1
     ),
+
     cv.Optional(CONF_LOAD_VOLTAGE): sensor.sensor_schema(
         unit_of_measurement=UNIT_VOLT,
         icon=ICON_FLASH,
         accuracy_decimals=1
     ),
+
     cv.Optional(CONF_LOAD_CURRENT): sensor.sensor_schema(
         unit_of_measurement=UNIT_AMPERE,
         icon=ICON_CURRENT_AC,
         accuracy_decimals=1
     ),
+
     cv.Optional(CONF_CHARGING_POWER): sensor.sensor_schema(
         unit_of_measurement=UNIT_WATT,
         icon=ICON_POWER,
         accuracy_decimals=0
     ),
+
     cv.Optional(CONF_LOAD_POWER): sensor.sensor_schema(
         unit_of_measurement=UNIT_WATT,
         icon=ICON_POWER,
         accuracy_decimals=0
     ),
+
     cv.Optional(CONF_BATTERY_TEMP): sensor.sensor_schema(
         unit_of_measurement=UNIT_CELSIUS,
         icon=ICON_THERMOMETER,
         accuracy_decimals=0
     ),
+
     cv.Optional(CONF_INTERNAL_TEMP): sensor.sensor_schema(
         unit_of_measurement=UNIT_CELSIUS,
         icon=ICON_THERMOMETER,
         accuracy_decimals=0
     ),
+
     cv.Optional(CONF_BATTERY_LEVEL): sensor.sensor_schema(
         unit_of_measurement=UNIT_PERCENT,
         icon=ICON_PERCENT,
         accuracy_decimals=0
     ),
+
+    # Energia z PV, odczytana natywnie z eSmart3.
+    cv.Optional(CONF_TODAY_ENERGY): sensor.sensor_schema(
+        unit_of_measurement="kWh",
+        icon=ICON_FLASH,
+        accuracy_decimals=3
+    ),
+
+    cv.Optional(CONF_MONTH_ENERGY): sensor.sensor_schema(
+        unit_of_measurement="kWh",
+        icon=ICON_FLASH,
+        accuracy_decimals=3
+    ),
+
+    cv.Optional(CONF_TOTAL_ENERGY): sensor.sensor_schema(
+        unit_of_measurement="kWh",
+        icon=ICON_FLASH,
+        accuracy_decimals=3
+    ),
+
+    # Energia zużyta na wyjściu LOAD.
+    cv.Optional(CONF_LOAD_TODAY_ENERGY): sensor.sensor_schema(
+        unit_of_measurement="kWh",
+        icon=ICON_POWER,
+        accuracy_decimals=3
+    ),
+
+    cv.Optional(CONF_LOAD_MONTH_ENERGY): sensor.sensor_schema(
+        unit_of_measurement="kWh",
+        icon=ICON_POWER,
+        accuracy_decimals=3
+    ),
+
+    cv.Optional(CONF_LOAD_TOTAL_ENERGY): sensor.sensor_schema(
+        unit_of_measurement="kWh",
+        icon=ICON_POWER,
+        accuracy_decimals=3
+    ),
+
 }).extend(cv.polling_component_schema('60s'))
+
 
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
+
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
 
@@ -129,3 +207,27 @@ async def to_code(config):
     if CONF_BATTERY_LEVEL in config:
         sens = await sensor.new_sensor(config[CONF_BATTERY_LEVEL])
         cg.add(var.set_battery_level_sensor(sens))
+
+    if CONF_TODAY_ENERGY in config:
+        sens = await sensor.new_sensor(config[CONF_TODAY_ENERGY])
+        cg.add(var.set_today_energy_sensor(sens))
+
+    if CONF_MONTH_ENERGY in config:
+        sens = await sensor.new_sensor(config[CONF_MONTH_ENERGY])
+        cg.add(var.set_month_energy_sensor(sens))
+
+    if CONF_TOTAL_ENERGY in config:
+        sens = await sensor.new_sensor(config[CONF_TOTAL_ENERGY])
+        cg.add(var.set_total_energy_sensor(sens))
+
+    if CONF_LOAD_TODAY_ENERGY in config:
+        sens = await sensor.new_sensor(config[CONF_LOAD_TODAY_ENERGY])
+        cg.add(var.set_load_today_energy_sensor(sens))
+
+    if CONF_LOAD_MONTH_ENERGY in config:
+        sens = await sensor.new_sensor(config[CONF_LOAD_MONTH_ENERGY])
+        cg.add(var.set_load_month_energy_sensor(sens))
+
+    if CONF_LOAD_TOTAL_ENERGY in config:
+        sens = await sensor.new_sensor(config[CONF_LOAD_TOTAL_ENERGY])
+        cg.add(var.set_load_total_energy_sensor(sens))
