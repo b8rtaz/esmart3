@@ -37,31 +37,19 @@ void ESmart3Component::update() {
     return;
   }
 
-  /*
-   * 1. Status bieżący (db_ChgSts, item 0x00):
-   * AA 01 00 01 00 03 00 00 18 39
-   */
+  // 1. Status bieżący (db_ChgSts)
   static uint8_t status_data[] = {
-      0xAA, 0x01, 0x00, 0x01, 0x00,
-      0x03, 0x00, 0x00, 0x18, 0x39
+      0xAA, 0x01, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x18, 0x39
   };
 
-  /*
-   * 2. Energia PV dzienna i miesięczna (db_Log, item 0x02, offset 0x0000, length 0x1A):
-   * AA 01 00 01 02 03 00 00 1A 35
-   */
+  // 2. PV Dzienna i Miesięczna (db_Log offset 0x0000)
   static uint8_t log_first_data[] = {
-      0xAA, 0x01, 0x00, 0x01, 0x02,
-      0x03, 0x00, 0x00, 0x1A, 0x35
+      0xAA, 0x01, 0x00, 0x01, 0x02, 0x03, 0x00, 0x00, 0x1A, 0x35
   };
 
-  /*
-   * 3. Energia PV Total oraz komplet liczników LOAD (db_Log, item 0x02, offset 0x000E, length 0x12):
-   * AA 01 00 01 02 03 0E 00 12 2B
-   */
+  // 3. PV Total oraz komplet liczników LOAD (db_Log offset 0x000E, długość 0x12)
   static uint8_t log_second_data[] = {
-      0xAA, 0x01, 0x00, 0x01, 0x02,
-      0x03, 0x0E, 0x00, 0x12, 0x2B
+      0xAA, 0x01, 0x00, 0x01, 0x02, 0x03, 0x0E, 0x00, 0x12, 0x2F
   };
 
   static uint8_t request_type = 0;
@@ -238,7 +226,7 @@ void ESmart3Component::parse_log_data_() {
   const uint16_t offset = get_16_bit_uint_(6);
 
   /*
-   * 1. Blok offset 0x0000:
+   * 1. Odczyt offset 0x0000:
    * - index 22 = dwTodayEng (PV Daily)
    * - index 30 = dwMonthEng (PV Monthly)
    */
@@ -263,7 +251,7 @@ void ESmart3Component::parse_log_data_() {
   }
 
   /*
-   * 2. Blok offset 0x000E (odpowiedź ma 27 bajtów):
+   * 2. Odczyt offset 0x000E (odpowiedź ma 27 bajtów):
    * - index 10 = dwTotalEng     (PV Total)
    * - index 14 = dwLoadTodayEng (LOAD Daily)
    * - index 18 = dwLoadMonthEng (LOAD Monthly)
